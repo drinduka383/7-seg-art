@@ -8,13 +8,13 @@
   <style>
     :root {
       color-scheme: light dark;
-      --paper: #f7f7f2;
-      --surface: #ffffff;
-      --ink: #202426;
-      --muted: #677174;
-      --line: #d4dad7;
-      --accent: #087f8c;
-      --accent-2: #e2a72e;
+      --paper: #fcf5e4;
+      --surface: #e4dcc8;
+      --ink: #262626;
+      --muted: #595959;
+      --line: #cac1ad;
+      --accent: #407b49;
+      --accent-2: #b07d16;
       font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
     }
 
@@ -102,10 +102,10 @@
       overflow: auto;
       border: 1px solid var(--line);
       background:
-        linear-gradient(45deg, #edf1ef 25%, transparent 25%),
-        linear-gradient(-45deg, #edf1ef 25%, transparent 25%),
-        linear-gradient(45deg, transparent 75%, #edf1ef 75%),
-        linear-gradient(-45deg, transparent 75%, #edf1ef 75%);
+        linear-gradient(45deg, #e4dcc8 25%, transparent 25%),
+        linear-gradient(-45deg, #e4dcc8 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #e4dcc8 75%),
+        linear-gradient(-45deg, transparent 75%, #e4dcc8 75%);
       background-position: 0 0, 0 10px, 10px -10px, -10px 0;
       background-size: 20px 20px;
     }
@@ -128,13 +128,13 @@
     footer { margin-top: 28px; color: var(--muted); font-size: .8rem; }
 
     @media (prefers-color-scheme: dark) {
-      :root { --paper: #171b1d; --surface: #22282b; --ink: #edf1ef; --muted: #a4aeac; --line: #3c4648; --accent: #4fb7c5; --accent-2: #e7bc56; }
+      :root { --paper: #262626; --surface: #3a3430; --ink: #c5b8a1; --muted: #999999; --line: #5c554f; --accent: #6db478; --accent-2: #e5b567; }
       .canvas-wrap {
         background:
-          linear-gradient(45deg, #202629 25%, transparent 25%),
-          linear-gradient(-45deg, #202629 25%, transparent 25%),
-          linear-gradient(45deg, transparent 75%, #202629 75%),
-          linear-gradient(-45deg, transparent 75%, #202629 75%);
+          linear-gradient(45deg, #3a3430 25%, transparent 25%),
+          linear-gradient(-45deg, #3a3430 25%, transparent 25%),
+          linear-gradient(45deg, transparent 75%, #3a3430 75%),
+          linear-gradient(-45deg, transparent 75%, #3a3430 75%);
         background-position: 0 0, 0 10px, 10px -10px, -10px 0;
         background-size: 20px 20px;
       }
@@ -253,11 +253,11 @@
           </label>
           <label>
             Off color
-            <input id="off-color" type="color" value="#d8dfdc">
+            <input id="off-color" type="color" value="#e4dcc8">
           </label>
           <label>
             Background
-            <input id="bg-color" type="color" value="#f7f7f2">
+            <input id="bg-color" type="color" value="#fcf5e4">
           </label>
           <div class="actions">
             <button id="play" type="button" disabled>Play</button>
