@@ -1,0 +1,806 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Turn images, videos, and GIFs into a wall of seven-segment displays.">
+  <title>7-Seg Art</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --paper: #f7f7f2;
+      --surface: #ffffff;
+      --ink: #202426;
+      --muted: #677174;
+      --line: #d4dad7;
+      --accent: #087f8c;
+      --accent-2: #e2a72e;
+      font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); }
+    main { width: min(1280px, calc(100% - 32px)); margin: 5vh auto; }
+    header { display: grid; gap: 8px; max-width: 820px; margin-bottom: 24px; }
+    h1 { margin: 0; font-size: clamp(2rem, 6vw, 4.25rem); line-height: .95; }
+    p { margin: 0; line-height: 1.55; color: var(--muted); }
+    a { color: inherit; text-underline-offset: 3px; }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(170px, 1fr));
+      gap: 14px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+    }
+    .controls.is-dragging { outline: 2px solid var(--accent); outline-offset: 3px; }
+    .wide { grid-column: span 2; }
+    .full { grid-column: 1 / -1; }
+
+    label { display: grid; gap: 7px; min-width: 0; font-size: .9rem; }
+    input, button { font: inherit; }
+    input[type="file"] { width: 100%; }
+    input[type="range"] { width: 100%; accent-color: var(--accent); }
+    input[type="color"] { width: 100%; min-height: 34px; padding: 0; border: 1px solid var(--line); background: transparent; }
+    output { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    button {
+      min-height: 34px;
+      padding: 6px 10px;
+      border: 1px solid var(--line);
+      background: var(--paper);
+      color: var(--ink);
+      cursor: pointer;
+    }
+    button:hover { border-color: var(--accent); }
+    button:disabled { cursor: not-allowed; opacity: .45; }
+    input:focus, button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+    .stage {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+      gap: 22px;
+      align-items: start;
+      margin-top: 24px;
+    }
+    .canvas-wrap {
+      display: grid;
+      min-height: 420px;
+      place-items: center;
+      overflow: auto;
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(45deg, #edf1ef 25%, transparent 25%),
+        linear-gradient(-45deg, #edf1ef 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #edf1ef 75%),
+        linear-gradient(-45deg, transparent 75%, #edf1ef 75%);
+      background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+      background-size: 20px 20px;
+    }
+    canvas { display: block; max-width: 100%; height: auto; }
+    canvas[hidden] { display: none; }
+    .empty { padding: 32px; text-align: center; }
+
+    .details {
+      display: grid;
+      gap: 14px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+    }
+    .details h2 { margin: 0; font-size: 1rem; }
+    dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; margin: 0; font-size: .9rem; }
+    dt { color: var(--muted); }
+    dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+    footer { margin-top: 28px; color: var(--muted); font-size: .8rem; }
+
+    @media (prefers-color-scheme: dark) {
+      :root { --paper: #171b1d; --surface: #22282b; --ink: #edf1ef; --muted: #a4aeac; --line: #3c4648; --accent: #4fb7c5; --accent-2: #e7bc56; }
+      .canvas-wrap {
+        background:
+          linear-gradient(45deg, #202629 25%, transparent 25%),
+          linear-gradient(-45deg, #202629 25%, transparent 25%),
+          linear-gradient(45deg, transparent 75%, #202629 75%),
+          linear-gradient(-45deg, transparent 75%, #202629 75%);
+        background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+        background-size: 20px 20px;
+      }
+    }
+
+    @media (max-width: 900px) {
+      main { width: min(100% - 24px, 1280px); margin-top: 28px; }
+      .controls, .stage { grid-template-columns: 1fr; }
+      .wide, .full { grid-column: auto; }
+      .canvas-wrap { min-height: 300px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>7-Seg Art</h1>
+      <p>Load an image, video, or GIF. Each frame is thresholded, fitted to the nearest seven-segment mask, and drawn as a display wall.</p>
+    </header>
+
+    <section class="controls" id="drop-zone" aria-label="Media controls">
+      <label class="wide">
+        Media
+        <input id="file" type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/*">
+      </label>
+      <label>
+        Columns <output id="columns-value" for="columns">36</output>
+        <input id="columns" type="range" min="4" max="96" value="36">
+      </label>
+      <label>
+        Rows <output id="rows-value" for="rows">20</output>
+        <input id="rows" type="range" min="3" max="54" value="20">
+      </label>
+      <label>
+        Digit size <output id="size-value" for="size">30 px</output>
+        <input id="size" type="range" min="10" max="72" value="30">
+      </label>
+      <label>
+        Segment thickness <output id="thickness-value" for="thickness">18%</output>
+        <input id="thickness" type="range" min="10" max="30" value="18">
+      </label>
+      <label>
+        Gap <output id="gap-value" for="gap">3 px</output>
+        <input id="gap" type="range" min="0" max="16" value="3">
+      </label>
+      <label>
+        Threshold <output id="threshold-value" for="threshold">128</output>
+        <input id="threshold" type="range" min="0" max="255" value="128">
+      </label>
+      <label>
+        Export FPS <output id="fps-value" for="fps">12</output>
+        <input id="fps" type="range" min="1" max="30" value="12">
+      </label>
+      <label>
+        On color
+        <input id="on-color" type="color" value="#111618">
+      </label>
+      <label>
+        Off color
+        <input id="off-color" type="color" value="#d8dfdc">
+      </label>
+      <label>
+        Background
+        <input id="bg-color" type="color" value="#f7f7f2">
+      </label>
+      <div class="actions wide">
+        <button id="play" type="button" disabled>Play</button>
+        <button id="download-png" type="button" disabled>Download PNG</button>
+        <button id="download-json" type="button" disabled>Download JSON</button>
+      </div>
+      <label class="full">
+        Time <output id="time-value" for="seek">0.00 s</output>
+        <input id="seek" type="range" min="0" max="1" step="0.001" value="0" disabled>
+      </label>
+      <p class="full" id="status" role="status">Drop a media file here, paste an image, or choose a file.</p>
+    </section>
+
+    <section class="stage" aria-live="polite">
+      <div class="canvas-wrap">
+        <p class="empty" id="empty">The segment wall will appear here.</p>
+        <canvas id="preview" aria-label="Seven-segment media preview" hidden></canvas>
+      </div>
+      <aside class="details" aria-label="Output details">
+        <h2>Matrix</h2>
+        <dl>
+          <dt>Cells</dt><dd id="cell-count">0</dd>
+          <dt>Segments</dt><dd id="segment-count">0</dd>
+          <dt>Canvas</dt><dd id="canvas-size">0 x 0</dd>
+          <dt>Source</dt><dd id="source-size">None</dd>
+          <dt>Mode</dt><dd id="mode">Waiting</dd>
+        </dl>
+      </aside>
+    </section>
+
+    <footer>
+      Processing stays in this browser. GIF decoding is loaded from jsDelivr when a GIF is opened.
+    </footer>
+  </main>
+
+  <script type="module">
+    const CELL_W = 14;
+    const CELL_H = 24;
+    const SEGMENTS = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+    const els = {
+      file: document.querySelector('#file'),
+      dropZone: document.querySelector('#drop-zone'),
+      status: document.querySelector('#status'),
+      preview: document.querySelector('#preview'),
+      empty: document.querySelector('#empty'),
+      play: document.querySelector('#play'),
+      downloadPng: document.querySelector('#download-png'),
+      downloadJson: document.querySelector('#download-json'),
+      seek: document.querySelector('#seek'),
+      timeValue: document.querySelector('#time-value'),
+      cellCount: document.querySelector('#cell-count'),
+      segmentCount: document.querySelector('#segment-count'),
+      canvasSize: document.querySelector('#canvas-size'),
+      sourceSize: document.querySelector('#source-size'),
+      mode: document.querySelector('#mode'),
+      columns: document.querySelector('#columns'),
+      rows: document.querySelector('#rows'),
+      size: document.querySelector('#size'),
+      thickness: document.querySelector('#thickness'),
+      gap: document.querySelector('#gap'),
+      threshold: document.querySelector('#threshold'),
+      fps: document.querySelector('#fps'),
+      onColor: document.querySelector('#on-color'),
+      offColor: document.querySelector('#off-color'),
+      bgColor: document.querySelector('#bg-color')
+    };
+
+    const outputs = {
+      columns: document.querySelector('#columns-value'),
+      rows: document.querySelector('#rows-value'),
+      size: document.querySelector('#size-value'),
+      thickness: document.querySelector('#thickness-value'),
+      gap: document.querySelector('#gap-value'),
+      threshold: document.querySelector('#threshold-value'),
+      fps: document.querySelector('#fps-value')
+    };
+
+    const analysis = document.createElement('canvas');
+    const analysisContext = analysis.getContext('2d', { willReadFrequently: true });
+    const previewContext = els.preview.getContext('2d');
+    const state = {
+      source: null,
+      type: '',
+      filename: '7-seg-art',
+      objectUrl: '',
+      playing: false,
+      raf: 0,
+      lastRenderAt: 0,
+      lastGifTick: 0,
+      gifIndex: 0,
+      currentCells: [],
+      masks: null,
+      exporting: false
+    };
+
+    function value(id) {
+      return Number(els[id].value);
+    }
+
+    function updateLabels() {
+      outputs.columns.textContent = String(value('columns'));
+      outputs.rows.textContent = String(value('rows'));
+      outputs.size.textContent = `${value('size')} px`;
+      outputs.thickness.textContent = `${value('thickness')}%`;
+      outputs.gap.textContent = `${value('gap')} px`;
+      outputs.threshold.textContent = String(value('threshold'));
+      outputs.fps.textContent = String(value('fps'));
+    }
+
+    function segmentRects(width, height, thicknessRatio) {
+      const t = Math.max(1, Math.round(Math.min(width, height) * thicknessRatio));
+      return [
+        [t, 0, width - 2 * t, t],
+        [width - t, t, t, Math.floor(height / 2) - t],
+        [width - t, Math.floor(height / 2), t, Math.ceil(height / 2) - t],
+        [t, height - t, width - 2 * t, t],
+        [0, Math.floor(height / 2), t, Math.ceil(height / 2) - t],
+        [0, t, t, Math.floor(height / 2) - t],
+        [t, Math.floor(height / 2) - Math.floor(t / 2), width - 2 * t, t]
+      ].map(rect => rect.map(n => Math.max(0, n)));
+    }
+
+    function buildMasks() {
+      const thicknessRatio = value('thickness') / 100;
+      const memberships = new Uint8Array(CELL_W * CELL_H);
+      const rects = segmentRects(CELL_W, CELL_H, thicknessRatio);
+
+      for (let y = 0; y < CELL_H; y++) {
+        for (let x = 0; x < CELL_W; x++) {
+          let bits = 0;
+          rects.forEach(([rx, ry, rw, rh], index) => {
+            if (x >= rx && x < rx + rw && y >= ry && y < ry + rh) bits |= 1 << index;
+          });
+          memberships[y * CELL_W + x] = bits;
+        }
+      }
+
+      const onCounts = new Uint16Array(128);
+      const activeMemberships = Array.from({ length: 128 }, () => []);
+      for (let candidate = 0; candidate < 128; candidate++) {
+        for (const membership of memberships) {
+          if (candidate & membership) onCounts[candidate]++;
+        }
+        for (let membership = 1; membership < 128; membership++) {
+          if (candidate & membership) activeMemberships[candidate].push(membership);
+        }
+      }
+      state.masks = { memberships, onCounts, activeMemberships, thickness: value('thickness') };
+    }
+
+    function popcount(number) {
+      let count = 0;
+      while (number) {
+        number &= number - 1;
+        count++;
+      }
+      return count;
+    }
+
+    function bestMask(imageData, cellX, cellY) {
+      if (!state.masks || state.masks.thickness !== value('thickness')) buildMasks();
+      const counts = new Uint16Array(128);
+      const threshold = value('threshold');
+      const columns = value('columns');
+      const baseX = cellX * CELL_W;
+      const baseY = cellY * CELL_H;
+      let sourceOn = 0;
+
+      for (let y = 0; y < CELL_H; y++) {
+        for (let x = 0; x < CELL_W; x++) {
+          const sourceIndex = ((baseY + y) * columns * CELL_W + baseX + x) * 4;
+          const red = imageData[sourceIndex];
+          const green = imageData[sourceIndex + 1];
+          const blue = imageData[sourceIndex + 2];
+          const luminance = red * .2126 + green * .7152 + blue * .0722;
+          if (luminance < threshold) {
+            counts[state.masks.memberships[y * CELL_W + x]]++;
+            sourceOn++;
+          }
+        }
+      }
+
+      let best = 0;
+      let bestError = Number.POSITIVE_INFINITY;
+      let bestSegments = 0;
+      for (let candidate = 0; candidate < 128; candidate++) {
+        let intersection = 0;
+        for (const membership of state.masks.activeMemberships[candidate]) {
+          intersection += counts[membership];
+        }
+        const error = sourceOn + state.masks.onCounts[candidate] - 2 * intersection;
+        const segments = popcount(candidate);
+        if (error < bestError || (error === bestError && segments < bestSegments)) {
+          best = candidate;
+          bestError = error;
+          bestSegments = segments;
+        }
+      }
+      return best;
+    }
+
+    function drawContained(context, drawable, sourceWidth, sourceHeight, width, height) {
+      context.fillStyle = '#fff';
+      context.fillRect(0, 0, width, height);
+      const scale = Math.min(width / sourceWidth, height / sourceHeight);
+      const drawWidth = sourceWidth * scale;
+      const drawHeight = sourceHeight * scale;
+      const x = (width - drawWidth) / 2;
+      const y = (height - drawHeight) / 2;
+      context.drawImage(drawable, x, y, drawWidth, drawHeight);
+    }
+
+    function computeCells(drawable, sourceWidth, sourceHeight) {
+      const columns = value('columns');
+      const rows = value('rows');
+      analysis.width = columns * CELL_W;
+      analysis.height = rows * CELL_H;
+      drawContained(analysisContext, drawable, sourceWidth, sourceHeight, analysis.width, analysis.height);
+      const pixels = analysisContext.getImageData(0, 0, analysis.width, analysis.height).data;
+      const cells = new Uint8Array(columns * rows);
+
+      for (let row = 0; row < rows; row++) {
+        for (let column = 0; column < columns; column++) {
+          cells[row * columns + column] = bestMask(pixels, column, row);
+        }
+      }
+      return cells;
+    }
+
+    function drawSegment(context, x, y, width, height, fill) {
+      const end = Math.min(width, height) / 2;
+      context.fillStyle = fill;
+      context.beginPath();
+      if (width >= height) {
+        context.moveTo(x + end, y);
+        context.lineTo(x + width - end, y);
+        context.lineTo(x + width, y + height / 2);
+        context.lineTo(x + width - end, y + height);
+        context.lineTo(x + end, y + height);
+        context.lineTo(x, y + height / 2);
+      } else {
+        context.moveTo(x + width / 2, y);
+        context.lineTo(x + width, y + end);
+        context.lineTo(x + width, y + height - end);
+        context.lineTo(x + width / 2, y + height);
+        context.lineTo(x, y + height - end);
+        context.lineTo(x, y + end);
+      }
+      context.closePath();
+      context.fill();
+    }
+
+    function drawDigit(context, bitmask, x, y, width, height) {
+      const thickness = Math.max(2, Math.round(Math.min(width, height) * value('thickness') / 100));
+      const rects = segmentRects(width, height, value('thickness') / 100);
+      for (let index = 0; index < rects.length; index++) {
+        const [rx, ry, rw, rh] = rects[index];
+        if (!rw || !rh) continue;
+        drawSegment(
+          context,
+          x + rx,
+          y + ry,
+          Math.max(thickness, rw),
+          Math.max(thickness, rh),
+          bitmask & (1 << index) ? els.onColor.value : els.offColor.value
+        );
+      }
+    }
+
+    function renderCells(cells) {
+      const columns = value('columns');
+      const rows = value('rows');
+      const digitHeight = value('size');
+      const digitWidth = Math.max(6, Math.round(digitHeight * CELL_W / CELL_H));
+      const gap = value('gap');
+      const width = columns * digitWidth + Math.max(0, columns - 1) * gap;
+      const height = rows * digitHeight + Math.max(0, rows - 1) * gap;
+
+      els.preview.width = width;
+      els.preview.height = height;
+      previewContext.fillStyle = els.bgColor.value;
+      previewContext.fillRect(0, 0, width, height);
+
+      for (let row = 0; row < rows; row++) {
+        for (let column = 0; column < columns; column++) {
+          drawDigit(
+            previewContext,
+            cells[row * columns + column],
+            column * (digitWidth + gap),
+            row * (digitHeight + gap),
+            digitWidth,
+            digitHeight
+          );
+        }
+      }
+
+      els.empty.hidden = true;
+      els.preview.hidden = false;
+      els.downloadPng.disabled = false;
+      els.downloadJson.disabled = false;
+      els.cellCount.textContent = String(columns * rows);
+      els.segmentCount.textContent = String(columns * rows * SEGMENTS.length);
+      els.canvasSize.textContent = `${width} x ${height}`;
+    }
+
+    function currentDrawable() {
+      if (!state.source) return null;
+      if (state.type === 'image') return state.source;
+      if (state.type === 'video') return {
+        drawable: state.source.video,
+        width: state.source.video.videoWidth,
+        height: state.source.video.videoHeight,
+        time: state.source.video.currentTime
+      };
+      if (state.type === 'gif') {
+        const frame = state.source.frames[state.gifIndex];
+        return { drawable: frame.bitmap, width: state.source.width, height: state.source.height, time: frame.time };
+      }
+      return null;
+    }
+
+    function renderNow() {
+      const source = currentDrawable();
+      if (!source || !source.width || !source.height) return;
+      state.currentCells = computeCells(source.drawable, source.width, source.height);
+      renderCells(state.currentCells);
+      updateTime(source.time || 0);
+    }
+
+    function animationTick(now) {
+      if (!state.playing) return;
+      if (state.type === 'gif') {
+        const frame = state.source.frames[state.gifIndex];
+        if (!state.lastGifTick) state.lastGifTick = now;
+        if (now - state.lastGifTick >= frame.delay) {
+          state.lastGifTick = now;
+          state.gifIndex = (state.gifIndex + 1) % state.source.frames.length;
+          renderNow();
+        }
+      } else if (state.type === 'video') {
+        const interval = 1000 / Math.min(30, value('fps'));
+        if (now - state.lastRenderAt >= interval) {
+          state.lastRenderAt = now;
+          renderNow();
+        }
+      }
+      state.raf = requestAnimationFrame(animationTick);
+    }
+
+    function setPlaying(playing) {
+      if (!state.source || state.type === 'image') return;
+      state.playing = playing;
+      els.play.textContent = playing ? 'Pause' : 'Play';
+      if (state.type === 'video') {
+        if (playing) state.source.video.play();
+        else state.source.video.pause();
+      }
+      if (playing) {
+        state.lastGifTick = 0;
+        state.lastRenderAt = 0;
+        cancelAnimationFrame(state.raf);
+        state.raf = requestAnimationFrame(animationTick);
+      } else {
+        cancelAnimationFrame(state.raf);
+      }
+    }
+
+    function updateTime(seconds) {
+      els.timeValue.textContent = `${seconds.toFixed(2)} s`;
+      if (state.type === 'video') {
+        els.seek.value = String(state.source.video.currentTime / state.source.video.duration || 0);
+      } else if (state.type === 'gif') {
+        els.seek.value = String(state.source.frames[state.gifIndex].time / state.source.duration || 0);
+      } else {
+        els.seek.value = '0';
+      }
+    }
+
+    function cleanupSource() {
+      setPlaying(false);
+      if (state.objectUrl) URL.revokeObjectURL(state.objectUrl);
+      state.objectUrl = '';
+      state.source = null;
+      state.type = '';
+      state.currentCells = [];
+      state.gifIndex = 0;
+    }
+
+    function readyCommon(file, type, width, height) {
+      state.type = type;
+      state.filename = file.name.replace(/\.[^.]+$/, '').replace(/[^a-z0-9_-]+/gi, '-') || '7-seg-art';
+      els.play.disabled = type === 'image';
+      els.seek.disabled = type === 'image';
+      els.downloadJson.disabled = false;
+      els.sourceSize.textContent = `${width} x ${height}`;
+      els.mode.textContent = type.toUpperCase();
+      renderNow();
+    }
+
+    async function loadImage(file) {
+      cleanupSource();
+      const bitmap = await createImageBitmap(file);
+      state.source = { drawable: bitmap, width: bitmap.width, height: bitmap.height };
+      readyCommon(file, 'image', bitmap.width, bitmap.height);
+      els.status.textContent = `${file.name} loaded.`;
+    }
+
+    function loadVideo(file) {
+      cleanupSource();
+      const video = document.createElement('video');
+      state.objectUrl = URL.createObjectURL(file);
+      video.src = state.objectUrl;
+      video.muted = true;
+      video.loop = true;
+      video.playsInline = true;
+      video.preload = 'auto';
+      video.addEventListener('loadeddata', () => {
+        state.source = { video };
+        readyCommon(file, 'video', video.videoWidth, video.videoHeight);
+        els.status.textContent = `${file.name} loaded.`;
+      }, { once: true });
+      video.addEventListener('seeked', () => {
+        if (!state.playing && !state.exporting) renderNow();
+      });
+      video.addEventListener('error', () => {
+        els.status.textContent = 'This video could not be opened by this browser.';
+      }, { once: true });
+    }
+
+    let gifuctPromise;
+    async function gifuct() {
+      gifuctPromise ||= import('https://cdn.jsdelivr.net/npm/gifuct-js@2.1.2/+esm');
+      return gifuctPromise;
+    }
+
+    async function loadGif(file) {
+      cleanupSource();
+      els.status.textContent = 'Loading GIF decoder...';
+      const { parseGIF, decompressFrames } = await gifuct();
+      const parsed = parseGIF(await file.arrayBuffer());
+      const frames = decompressFrames(parsed, true);
+      const width = parsed.lsd.width;
+      const height = parsed.lsd.height;
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      const patchCanvas = document.createElement('canvas');
+      const patchContext = patchCanvas.getContext('2d');
+      canvas.width = width;
+      canvas.height = height;
+      const bitmaps = [];
+      let time = 0;
+
+      for (const frame of frames) {
+        const { left, top, width: frameWidth, height: frameHeight } = frame.dims;
+        const imageData = new ImageData(frame.patch, frameWidth, frameHeight);
+        patchCanvas.width = frameWidth;
+        patchCanvas.height = frameHeight;
+        patchContext.clearRect(0, 0, frameWidth, frameHeight);
+        patchContext.putImageData(imageData, 0, 0);
+        context.drawImage(patchCanvas, left, top);
+        bitmaps.push({
+          bitmap: await createImageBitmap(canvas),
+          delay: Math.max(20, frame.delay || 100),
+          time: time / 1000
+        });
+        time += Math.max(20, frame.delay || 100);
+        if (frame.disposalType === 2) context.clearRect(left, top, frameWidth, frameHeight);
+      }
+
+      state.source = { frames: bitmaps, width, height, duration: time / 1000 };
+      readyCommon(file, 'gif', width, height);
+      els.status.textContent = `${file.name} loaded with ${bitmaps.length} frames.`;
+    }
+
+    async function loadFile(file) {
+      if (!file) return;
+      try {
+        els.status.textContent = `Opening ${file.name || 'media'}...`;
+        if (file.type === 'image/gif' || /\.gif$/i.test(file.name)) {
+          await loadGif(file);
+        } else if (file.type.startsWith('image/')) {
+          await loadImage(file);
+        } else if (file.type.startsWith('video/')) {
+          loadVideo(file);
+        } else {
+          els.status.textContent = 'Choose an image, video, or GIF file.';
+        }
+      } catch (error) {
+        console.error(error);
+        cleanupSource();
+        els.status.textContent = 'This media file could not be processed.';
+      }
+    }
+
+    function downloadBlob(blob, suffix, extension) {
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.href = url;
+      link.download = `${state.filename}-${suffix}.${extension}`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    function downloadPng() {
+      els.preview.toBlob(blob => {
+        if (blob) downloadBlob(blob, 'frame', 'png');
+      }, 'image/png');
+    }
+
+    function framePayload(time, cells) {
+      return { time: Number(time.toFixed(3)), cells: Array.from(cells) };
+    }
+
+    function baseExport(frames) {
+      return {
+        version: 1,
+        sourceName: state.filename,
+        columns: value('columns'),
+        rows: value('rows'),
+        fps: value('fps'),
+        segments: SEGMENTS,
+        frames
+      };
+    }
+
+    function seekVideo(video, time) {
+      return new Promise(resolve => {
+        if (Math.abs(video.currentTime - time) < .002) {
+          resolve();
+          return;
+        }
+        const done = () => resolve();
+        video.addEventListener('seeked', done, { once: true });
+        video.currentTime = Math.min(time, video.duration || 0);
+      });
+    }
+
+    async function exportJson() {
+      if (!state.source) return;
+      setPlaying(false);
+      state.exporting = true;
+      els.downloadJson.disabled = true;
+      els.status.textContent = 'Building JSON export...';
+      const frames = [];
+
+      try {
+        if (state.type === 'image') {
+          frames.push(framePayload(0, computeCells(state.source.drawable, state.source.width, state.source.height)));
+        } else if (state.type === 'gif') {
+          for (const frame of state.source.frames) {
+            frames.push(framePayload(frame.time, computeCells(frame.bitmap, state.source.width, state.source.height)));
+          }
+        } else if (state.type === 'video') {
+          const video = state.source.video;
+          const originalTime = video.currentTime;
+          const step = 1 / value('fps');
+          for (let time = 0; time < video.duration; time += step) {
+            await seekVideo(video, time);
+            frames.push(framePayload(time, computeCells(video, video.videoWidth, video.videoHeight)));
+          }
+          await seekVideo(video, originalTime);
+          renderNow();
+        }
+
+        const blob = new Blob([JSON.stringify(baseExport(frames))], { type: 'application/json' });
+        downloadBlob(blob, 'segments', 'json');
+        els.status.textContent = `Exported ${frames.length} frame${frames.length === 1 ? '' : 's'}.`;
+      } catch (error) {
+        console.error(error);
+        els.status.textContent = 'JSON export failed.';
+      } finally {
+        state.exporting = false;
+        els.downloadJson.disabled = false;
+      }
+    }
+
+    function onSettingsInput() {
+      updateLabels();
+      if (state.source) renderNow();
+    }
+
+    function handleSeek() {
+      if (!state.source || state.type === 'image') return;
+      const fraction = Number(els.seek.value);
+      if (state.type === 'gif') {
+        const target = fraction * state.source.duration;
+        const nextIndex = state.source.frames.findIndex(frame => frame.time > target);
+        const index = nextIndex === -1 ? state.source.frames.length - 1 : Math.max(0, nextIndex - 1);
+        state.gifIndex = index;
+        renderNow();
+      } else if (state.type === 'video') {
+        state.source.video.currentTime = fraction * state.source.video.duration;
+      }
+    }
+
+    console.assert(segmentRects(14, 24, .18).length === 7, 'Seven segment rectangles should be generated');
+    buildMasks();
+    console.assert(state.masks.onCounts[0] === 0, 'Blank mask should have no active pixels');
+    console.assert(state.masks.onCounts[127] > state.masks.onCounts[1], 'Full mask should include more pixels than one segment');
+
+    updateLabels();
+    for (const id of ['columns', 'rows', 'size', 'thickness', 'gap', 'threshold', 'fps', 'onColor', 'offColor', 'bgColor']) {
+      els[id].addEventListener('input', onSettingsInput);
+    }
+    els.file.addEventListener('change', () => loadFile(els.file.files[0]));
+    els.play.addEventListener('click', () => setPlaying(!state.playing));
+    els.downloadPng.addEventListener('click', downloadPng);
+    els.downloadJson.addEventListener('click', exportJson);
+    els.seek.addEventListener('input', handleSeek);
+    document.addEventListener('paste', event => {
+      const file = Array.from(event.clipboardData.files).find(item => item.type.startsWith('image/'));
+      if (file) {
+        event.preventDefault();
+        loadFile(file);
+      }
+    });
+    for (const type of ['dragenter', 'dragover']) {
+      els.dropZone.addEventListener(type, event => {
+        event.preventDefault();
+        els.dropZone.classList.add('is-dragging');
+      });
+    }
+    els.dropZone.addEventListener('dragleave', () => els.dropZone.classList.remove('is-dragging'));
+    els.dropZone.addEventListener('drop', event => {
+      event.preventDefault();
+      els.dropZone.classList.remove('is-dragging');
+      loadFile(Array.from(event.dataTransfer.files).find(file => file.type.startsWith('image/') || file.type.startsWith('video/') || /\.gif$/i.test(file.name)));
+    });
+  </script>
+</body>
+</html>
