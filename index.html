@@ -68,6 +68,7 @@
 
     label { display: grid; gap: 7px; min-width: 0; font-size: .9rem; }
     input, button { font: inherit; }
+    select { min-height: 34px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
     input[type="file"] { width: 100%; }
     input[type="range"] { width: 100%; accent-color: var(--accent); }
     input[type="color"] { width: 100%; min-height: 34px; padding: 0; border: 1px solid var(--line); background: transparent; }
@@ -90,6 +91,7 @@
     button:hover { border-color: var(--accent); }
     button:disabled { cursor: not-allowed; opacity: .45; }
     input:focus, button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    [hidden] { display: none !important; }
 
     .canvas-wrap {
       display: grid;
@@ -204,8 +206,39 @@
             <input id="gap" type="range" min="0" max="16" value="3">
           </label>
           <label>
+            Processing mode
+            <select id="process-mode">
+              <option value="otsu" selected>Otsu auto</option>
+              <option value="manual">Manual threshold</option>
+              <option value="adaptive">Adaptive local</option>
+              <option value="ordered">Ordered dither</option>
+              <option value="floyd">Floyd-Steinberg dither</option>
+              <option value="edge">Edge boost</option>
+            </select>
+          </label>
+          <label>
             Threshold <output id="threshold-value" for="threshold">128</output>
             <input id="threshold" type="range" min="0" max="255" value="128">
+          </label>
+          <label>
+            Contrast <output id="contrast-value" for="contrast">0</output>
+            <input id="contrast" type="range" min="-100" max="100" value="0">
+          </label>
+          <label>
+            Brightness <output id="brightness-value" for="brightness">0</output>
+            <input id="brightness" type="range" min="-100" max="100" value="0">
+          </label>
+          <label>
+            Gamma <output id="gamma-value" for="gamma">1.00</output>
+            <input id="gamma" type="range" min="40" max="250" value="100">
+          </label>
+          <label>
+            Blur/noise cleanup <output id="cleanup-value" for="cleanup">0 px</output>
+            <input id="cleanup" type="range" min="0" max="3" value="0">
+          </label>
+          <label id="dither-row" hidden>
+            Dither strength <output id="dither-value" for="dither">100%</output>
+            <input id="dither" type="range" min="0" max="100" value="100">
           </label>
           <label>
             Export FPS <output id="fps-value" for="fps">12</output>
@@ -244,6 +277,7 @@
             <dt>Canvas</dt><dd id="canvas-size">0 x 0</dd>
             <dt>Source</dt><dd id="source-size">None</dd>
             <dt>Mode</dt><dd id="mode">Waiting</dd>
+            <dt>Threshold</dt><dd id="chosen-threshold">-</dd>
           </dl>
         </aside>
       </div>
@@ -280,12 +314,20 @@
       canvasSize: document.querySelector('#canvas-size'),
       sourceSize: document.querySelector('#source-size'),
       mode: document.querySelector('#mode'),
+      chosenThreshold: document.querySelector('#chosen-threshold'),
       columns: document.querySelector('#columns'),
       rows: document.querySelector('#rows'),
       size: document.querySelector('#size'),
       thickness: document.querySelector('#thickness'),
       gap: document.querySelector('#gap'),
+      processMode: document.querySelector('#process-mode'),
       threshold: document.querySelector('#threshold'),
+      contrast: document.querySelector('#contrast'),
+      brightness: document.querySelector('#brightness'),
+      gamma: document.querySelector('#gamma'),
+      cleanup: document.querySelector('#cleanup'),
+      dither: document.querySelector('#dither'),
+      ditherRow: document.querySelector('#dither-row'),
       fps: document.querySelector('#fps'),
       onColor: document.querySelector('#on-color'),
       offColor: document.querySelector('#off-color'),
@@ -299,6 +341,11 @@
       thickness: document.querySelector('#thickness-value'),
       gap: document.querySelector('#gap-value'),
       threshold: document.querySelector('#threshold-value'),
+      contrast: document.querySelector('#contrast-value'),
+      brightness: document.querySelector('#brightness-value'),
+      gamma: document.querySelector('#gamma-value'),
+      cleanup: document.querySelector('#cleanup-value'),
+      dither: document.querySelector('#dither-value'),
       fps: document.querySelector('#fps-value')
     };
 
@@ -338,7 +385,13 @@
       outputs.thickness.textContent = `${value('thickness')}%`;
       outputs.gap.textContent = `${value('gap')} px`;
       outputs.threshold.textContent = String(value('threshold'));
+      outputs.contrast.textContent = String(value('contrast'));
+      outputs.brightness.textContent = String(value('brightness'));
+      outputs.gamma.textContent = (value('gamma') / 100).toFixed(2);
+      outputs.cleanup.textContent = `${value('cleanup')} px`;
+      outputs.dither.textContent = `${value('dither')}%`;
       outputs.fps.textContent = String(value('fps'));
+      els.ditherRow.hidden = !['ordered', 'floyd'].includes(els.processMode.value);
     }
 
     function segmentRects(width, height, thicknessRatio) {
@@ -391,10 +444,208 @@
       return count;
     }
 
-    function bestMask(imageData, cellX, cellY) {
+    function clamp(value, min = 0, max = 255) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function processingSettings() {
+      return {
+        mode: els.processMode.value,
+        threshold: value('threshold'),
+        contrast: value('contrast'),
+        brightness: value('brightness'),
+        gamma: value('gamma') / 100,
+        cleanup: value('cleanup'),
+        dither: value('dither') / 100
+      };
+    }
+
+    function adjustedLuminance(pixels, width, height) {
+      const settings = processingSettings();
+      const luma = new Float32Array(pixels.length / 4);
+      const contrast = 1 + settings.contrast / 100;
+      for (let source = 0, target = 0; source < pixels.length; source += 4, target++) {
+        const base = pixels[source] * .2126 + pixels[source + 1] * .7152 + pixels[source + 2] * .0722;
+        const contrasted = (base - 128) * contrast + 128 + settings.brightness;
+        luma[target] = 255 * Math.pow(clamp(contrasted) / 255, 1 / settings.gamma);
+      }
+      return settings.cleanup ? boxBlur(luma, width, height, settings.cleanup) : luma;
+    }
+
+    function boxBlur(values, width, height, radius) {
+      const output = new Float32Array(values.length);
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          let total = 0;
+          let count = 0;
+          for (let yy = Math.max(0, y - radius); yy <= Math.min(height - 1, y + radius); yy++) {
+            for (let xx = Math.max(0, x - radius); xx <= Math.min(width - 1, x + radius); xx++) {
+              total += values[yy * width + xx];
+              count++;
+            }
+          }
+          output[y * width + x] = total / count;
+        }
+      }
+      return output;
+    }
+
+    function otsuThreshold(values) {
+      const histogram = new Uint32Array(256);
+      for (const value of values) histogram[Math.round(clamp(value))]++;
+
+      let total = values.length;
+      let sum = 0;
+      for (let index = 0; index < 256; index++) sum += index * histogram[index];
+
+      let backgroundWeight = 0;
+      let backgroundSum = 0;
+      let bestVariance = -1;
+      let threshold = 128;
+      for (let index = 0; index < 256; index++) {
+        backgroundWeight += histogram[index];
+        if (!backgroundWeight) continue;
+        const foregroundWeight = total - backgroundWeight;
+        if (!foregroundWeight) break;
+        backgroundSum += index * histogram[index];
+        const backgroundMean = backgroundSum / backgroundWeight;
+        const foregroundMean = (sum - backgroundSum) / foregroundWeight;
+        const variance = backgroundWeight * foregroundWeight * (backgroundMean - foregroundMean) ** 2;
+        if (variance > bestVariance) {
+          bestVariance = variance;
+          threshold = index;
+        }
+      }
+      return threshold;
+    }
+
+    function globalBinary(values, threshold) {
+      const binary = new Uint8Array(values.length);
+      for (let index = 0; index < values.length; index++) binary[index] = values[index] < threshold ? 1 : 0;
+      return binary;
+    }
+
+    function adaptiveBinary(values, width, height, bias) {
+      const radius = Math.max(2, Math.round(Math.min(width, height) / 24));
+      const stride = width + 1;
+      const integral = new Float64Array((width + 1) * (height + 1));
+      const binary = new Uint8Array(values.length);
+
+      for (let y = 0; y < height; y++) {
+        let rowTotal = 0;
+        for (let x = 0; x < width; x++) {
+          rowTotal += values[y * width + x];
+          integral[(y + 1) * stride + x + 1] = integral[y * stride + x + 1] + rowTotal;
+        }
+      }
+
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const x1 = Math.max(0, x - radius);
+          const y1 = Math.max(0, y - radius);
+          const x2 = Math.min(width - 1, x + radius);
+          const y2 = Math.min(height - 1, y + radius);
+          const total =
+            integral[(y2 + 1) * stride + x2 + 1] -
+            integral[y1 * stride + x2 + 1] -
+            integral[(y2 + 1) * stride + x1] +
+            integral[y1 * stride + x1];
+          const count = (x2 - x1 + 1) * (y2 - y1 + 1);
+          binary[y * width + x] = values[y * width + x] < total / count + bias ? 1 : 0;
+        }
+      }
+      return binary;
+    }
+
+    function orderedDither(values, width, threshold, strength) {
+      const matrix = [
+        0, 8, 2, 10,
+        12, 4, 14, 6,
+        3, 11, 1, 9,
+        15, 7, 13, 5
+      ];
+      const binary = new Uint8Array(values.length);
+      for (let index = 0; index < values.length; index++) {
+        const x = index % width;
+        const y = Math.floor(index / width);
+        const offset = ((matrix[(y % 4) * 4 + (x % 4)] + .5) / 16 - .5) * 128 * strength;
+        binary[index] = values[index] < threshold + offset ? 1 : 0;
+      }
+      return binary;
+    }
+
+    function floydDither(values, width, height, threshold, strength) {
+      const work = Float32Array.from(values);
+      const binary = new Uint8Array(values.length);
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const index = y * width + x;
+          const black = work[index] < threshold;
+          binary[index] = black ? 1 : 0;
+          const quantized = black ? 0 : 255;
+          const error = (work[index] - quantized) * strength;
+          if (x + 1 < width) work[index + 1] += error * 7 / 16;
+          if (y + 1 < height) {
+            if (x > 0) work[index + width - 1] += error * 3 / 16;
+            work[index + width] += error * 5 / 16;
+            if (x + 1 < width) work[index + width + 1] += error / 16;
+          }
+        }
+      }
+      return binary;
+    }
+
+    function edgeValues(values, width, height) {
+      const edges = new Float32Array(values.length);
+      let max = 1;
+      for (let y = 1; y < height - 1; y++) {
+        for (let x = 1; x < width - 1; x++) {
+          const index = y * width + x;
+          const gx = values[index + 1] - values[index - 1];
+          const gy = values[index + width] - values[index - width];
+          const edge = Math.hypot(gx, gy);
+          edges[index] = edge;
+          if (edge > max) max = edge;
+        }
+      }
+      for (let index = 0; index < edges.length; index++) edges[index] = edges[index] / max * 255;
+      return edges;
+    }
+
+    function processFrame(pixels, width, height) {
+      const settings = processingSettings();
+      const values = adjustedLuminance(pixels, width, height);
+      const bias = settings.threshold - 128;
+      let threshold = settings.threshold;
+      let binary;
+
+      if (settings.mode === 'manual') {
+        binary = globalBinary(values, threshold);
+      } else if (settings.mode === 'adaptive') {
+        threshold = `local ${bias >= 0 ? '+' : ''}${bias}`;
+        binary = adaptiveBinary(values, width, height, bias);
+      } else if (settings.mode === 'ordered') {
+        threshold = clamp(otsuThreshold(values) + bias);
+        binary = orderedDither(values, width, threshold, settings.dither);
+      } else if (settings.mode === 'floyd') {
+        threshold = clamp(otsuThreshold(values) + bias);
+        binary = floydDither(values, width, height, threshold, settings.dither);
+      } else if (settings.mode === 'edge') {
+        const edges = edgeValues(values, width, height);
+        threshold = clamp(otsuThreshold(edges) + bias);
+        binary = new Uint8Array(edges.length);
+        for (let index = 0; index < edges.length; index++) binary[index] = edges[index] > threshold ? 1 : 0;
+      } else {
+        threshold = clamp(otsuThreshold(values) + bias);
+        binary = globalBinary(values, threshold);
+      }
+
+      return { binary, threshold, settings };
+    }
+
+    function bestMask(binary, cellX, cellY) {
       if (!state.masks || state.masks.thickness !== value('thickness')) buildMasks();
       const counts = new Uint16Array(128);
-      const threshold = value('threshold');
       const columns = value('columns');
       const baseX = cellX * CELL_W;
       const baseY = cellY * CELL_H;
@@ -402,12 +653,8 @@
 
       for (let y = 0; y < CELL_H; y++) {
         for (let x = 0; x < CELL_W; x++) {
-          const sourceIndex = ((baseY + y) * columns * CELL_W + baseX + x) * 4;
-          const red = imageData[sourceIndex];
-          const green = imageData[sourceIndex + 1];
-          const blue = imageData[sourceIndex + 2];
-          const luminance = red * .2126 + green * .7152 + blue * .0722;
-          if (luminance < threshold) {
+          const sourceIndex = (baseY + y) * columns * CELL_W + baseX + x;
+          if (binary[sourceIndex]) {
             counts[state.masks.memberships[y * CELL_W + x]]++;
             sourceOn++;
           }
@@ -444,20 +691,18 @@
       context.drawImage(drawable, x, y, drawWidth, drawHeight);
     }
 
-    function renderPipelineViews(pixels, width, height) {
+    function renderPipelineViews(result, width, height) {
       els.original.width = width;
       els.original.height = height;
       originalContext.drawImage(analysis, 0, 0);
 
       const processed = processedContext.createImageData(width, height);
-      const threshold = value('threshold');
-      for (let index = 0; index < pixels.length; index += 4) {
-        const luminance = pixels[index] * .2126 + pixels[index + 1] * .7152 + pixels[index + 2] * .0722;
-        const color = luminance < threshold ? 0 : 255;
-        processed.data[index] = color;
-        processed.data[index + 1] = color;
-        processed.data[index + 2] = color;
-        processed.data[index + 3] = 255;
+      for (let pixel = 0, output = 0; pixel < result.binary.length; pixel++, output += 4) {
+        const color = result.binary[pixel] ? 0 : 255;
+        processed.data[output] = color;
+        processed.data[output + 1] = color;
+        processed.data[output + 2] = color;
+        processed.data[output + 3] = 255;
       }
 
       els.processed.width = width;
@@ -465,6 +710,7 @@
       processedContext.putImageData(processed, 0, 0);
       reveal(els.original, els.originalEmpty);
       reveal(els.processed, els.processedEmpty);
+      els.chosenThreshold.textContent = String(result.threshold);
     }
 
     function computeCells(drawable, sourceWidth, sourceHeight, paintViews = false) {
@@ -474,12 +720,13 @@
       analysis.height = rows * CELL_H;
       drawContained(analysisContext, drawable, sourceWidth, sourceHeight, analysis.width, analysis.height);
       const pixels = analysisContext.getImageData(0, 0, analysis.width, analysis.height).data;
-      if (paintViews) renderPipelineViews(pixels, analysis.width, analysis.height);
+      const processed = processFrame(pixels, analysis.width, analysis.height);
+      if (paintViews) renderPipelineViews(processed, analysis.width, analysis.height);
       const cells = new Uint8Array(columns * rows);
 
       for (let row = 0; row < rows; row++) {
         for (let column = 0; column < columns; column++) {
-          cells[row * columns + column] = bestMask(pixels, column, row);
+          cells[row * columns + column] = bestMask(processed.binary, column, row);
         }
       }
       return cells;
@@ -641,6 +888,7 @@
       state.type = '';
       state.currentCells = [];
       state.gifIndex = 0;
+      els.chosenThreshold.textContent = '-';
       for (const [canvas, empty] of [[els.original, els.originalEmpty], [els.processed, els.processedEmpty], [els.preview, els.empty]]) {
         canvas.hidden = true;
         empty.hidden = false;
@@ -780,6 +1028,7 @@
         rows: value('rows'),
         fps: value('fps'),
         segments: SEGMENTS,
+        processing: processingSettings(),
         frames
       };
     }
@@ -862,11 +1111,16 @@
     buildMasks();
     console.assert(state.masks.onCounts[0] === 0, 'Blank mask should have no active pixels');
     console.assert(state.masks.onCounts[127] > state.masks.onCounts[1], 'Full mask should include more pixels than one segment');
+    console.assert(globalBinary(new Float32Array([10, 240]), 128).join(',') === '1,0', 'Manual threshold should produce strict black and white pixels');
+    console.assert(otsuThreshold(new Float32Array([20, 30, 40, 210, 220, 230])) > 0, 'Otsu should choose a real threshold for separated tones');
+    console.assert(orderedDither(new Float32Array([120, 130]), 2, 128, 1).every(value => value === 0 || value === 1), 'Ordered dither should stay binary');
+    console.assert('processing' in baseExport([]), 'JSON export should include processing settings');
 
     updateLabels();
-    for (const id of ['columns', 'rows', 'size', 'thickness', 'gap', 'threshold', 'fps', 'onColor', 'offColor', 'bgColor']) {
+    for (const id of ['columns', 'rows', 'size', 'thickness', 'gap', 'threshold', 'contrast', 'brightness', 'gamma', 'cleanup', 'dither', 'fps', 'onColor', 'offColor', 'bgColor']) {
       els[id].addEventListener('input', onSettingsInput);
     }
+    els.processMode.addEventListener('change', onSettingsInput);
     els.file.addEventListener('change', () => loadFile(els.file.files[0]));
     els.play.addEventListener('click', () => setPlaying(!state.playing));
     els.swapSides.addEventListener('click', toggleSides);
