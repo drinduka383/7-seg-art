@@ -39,6 +39,7 @@
 
     .views {
       display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 16px;
       min-width: 0;
     }
@@ -48,6 +49,7 @@
       min-width: 0;
     }
     .view h2 { margin: 0; font-size: 1rem; }
+    .view.is-final { grid-column: 1 / -1; }
 
     .sidebar {
       display: grid;
@@ -141,6 +143,7 @@
     @media (max-width: 900px) {
       main { width: min(100% - 24px, 1280px); margin-top: 28px; }
       .workspace, .workspace.is-swapped { grid-template-columns: 1fr; }
+      .views { grid-template-columns: 1fr; }
       .workspace.is-swapped .views, .workspace.is-swapped .sidebar { order: initial; }
       .full { grid-column: auto; }
       .canvas-wrap, .canvas-wrap.is-final { min-height: 260px; }
@@ -170,7 +173,7 @@
             <canvas id="processed" aria-label="Thresholded black and white frame" hidden></canvas>
           </div>
         </article>
-        <article class="view">
+        <article class="view is-final">
           <h2>7-segment wall</h2>
           <div class="canvas-wrap is-final">
             <p class="empty" id="empty">The segment wall will appear here.</p>
