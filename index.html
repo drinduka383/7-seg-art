@@ -26,16 +26,44 @@
     p { margin: 0; line-height: 1.55; color: var(--muted); }
     a { color: inherit; text-underline-offset: 3px; }
 
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+      gap: 22px;
+      align-items: start;
+      margin-top: 24px;
+    }
+    .workspace.is-swapped { grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); }
+    .workspace.is-swapped .views { order: 2; }
+    .workspace.is-swapped .sidebar { order: 1; }
+
+    .views {
+      display: grid;
+      gap: 16px;
+      min-width: 0;
+    }
+    .view {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+    .view h2 { margin: 0; font-size: 1rem; }
+
+    .sidebar {
+      display: grid;
+      gap: 14px;
+      min-width: 0;
+    }
+
     .controls {
       display: grid;
-      grid-template-columns: repeat(4, minmax(170px, 1fr));
+      grid-template-columns: 1fr;
       gap: 14px;
       padding: 16px;
       border: 1px solid var(--line);
       background: var(--surface);
     }
-    .controls.is-dragging { outline: 2px solid var(--accent); outline-offset: 3px; }
-    .wide { grid-column: span 2; }
+    .workspace.is-dragging .controls { outline: 2px solid var(--accent); outline-offset: 3px; }
     .full { grid-column: 1 / -1; }
 
     label { display: grid; gap: 7px; min-width: 0; font-size: .9rem; }
@@ -63,16 +91,9 @@
     button:disabled { cursor: not-allowed; opacity: .45; }
     input:focus, button:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-    .stage {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
-      gap: 22px;
-      align-items: start;
-      margin-top: 24px;
-    }
     .canvas-wrap {
       display: grid;
-      min-height: 420px;
+      min-height: 220px;
       place-items: center;
       overflow: auto;
       border: 1px solid var(--line);
@@ -84,6 +105,7 @@
       background-position: 0 0, 0 10px, 10px -10px, -10px 0;
       background-size: 20px 20px;
     }
+    .canvas-wrap.is-final { min-height: 420px; }
     canvas { display: block; max-width: 100%; height: auto; }
     canvas[hidden] { display: none; }
     .empty { padding: 32px; text-align: center; }
@@ -116,9 +138,10 @@
 
     @media (max-width: 900px) {
       main { width: min(100% - 24px, 1280px); margin-top: 28px; }
-      .controls, .stage { grid-template-columns: 1fr; }
-      .wide, .full { grid-column: auto; }
-      .canvas-wrap { min-height: 300px; }
+      .workspace, .workspace.is-swapped { grid-template-columns: 1fr; }
+      .workspace.is-swapped .views, .workspace.is-swapped .sidebar { order: initial; }
+      .full { grid-column: auto; }
+      .canvas-wrap, .canvas-wrap.is-final { min-height: 260px; }
     }
   </style>
 </head>
@@ -129,78 +152,101 @@
       <p>Load an image, video, or GIF. Each frame is thresholded, fitted to the nearest seven-segment mask, and drawn as a display wall.</p>
     </header>
 
-    <section class="controls" id="drop-zone" aria-label="Media controls">
-      <label class="wide">
-        Media
-        <input id="file" type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/*">
-      </label>
-      <label>
-        Columns <output id="columns-value" for="columns">36</output>
-        <input id="columns" type="range" min="4" max="96" value="36">
-      </label>
-      <label>
-        Rows <output id="rows-value" for="rows">20</output>
-        <input id="rows" type="range" min="3" max="54" value="20">
-      </label>
-      <label>
-        Digit size <output id="size-value" for="size">30 px</output>
-        <input id="size" type="range" min="10" max="72" value="30">
-      </label>
-      <label>
-        Segment thickness <output id="thickness-value" for="thickness">18%</output>
-        <input id="thickness" type="range" min="10" max="30" value="18">
-      </label>
-      <label>
-        Gap <output id="gap-value" for="gap">3 px</output>
-        <input id="gap" type="range" min="0" max="16" value="3">
-      </label>
-      <label>
-        Threshold <output id="threshold-value" for="threshold">128</output>
-        <input id="threshold" type="range" min="0" max="255" value="128">
-      </label>
-      <label>
-        Export FPS <output id="fps-value" for="fps">12</output>
-        <input id="fps" type="range" min="1" max="30" value="12">
-      </label>
-      <label>
-        On color
-        <input id="on-color" type="color" value="#111618">
-      </label>
-      <label>
-        Off color
-        <input id="off-color" type="color" value="#d8dfdc">
-      </label>
-      <label>
-        Background
-        <input id="bg-color" type="color" value="#f7f7f2">
-      </label>
-      <div class="actions wide">
-        <button id="play" type="button" disabled>Play</button>
-        <button id="download-png" type="button" disabled>Download PNG</button>
-        <button id="download-json" type="button" disabled>Download JSON</button>
+    <section class="workspace" id="workspace" aria-live="polite">
+      <div class="views">
+        <article class="view">
+          <h2>Original</h2>
+          <div class="canvas-wrap">
+            <p class="empty" id="original-empty">The sampled source frame will appear here.</p>
+            <canvas id="original" aria-label="Original sampled media frame" hidden></canvas>
+          </div>
+        </article>
+        <article class="view">
+          <h2>Processed</h2>
+          <div class="canvas-wrap">
+            <p class="empty" id="processed-empty">The thresholded black and white frame will appear here.</p>
+            <canvas id="processed" aria-label="Thresholded black and white frame" hidden></canvas>
+          </div>
+        </article>
+        <article class="view">
+          <h2>7-segment wall</h2>
+          <div class="canvas-wrap is-final">
+            <p class="empty" id="empty">The segment wall will appear here.</p>
+            <canvas id="preview" aria-label="Seven-segment media preview" hidden></canvas>
+          </div>
+        </article>
       </div>
-      <label class="full">
-        Time <output id="time-value" for="seek">0.00 s</output>
-        <input id="seek" type="range" min="0" max="1" step="0.001" value="0" disabled>
-      </label>
-      <p class="full" id="status" role="status">Drop a media file here, paste an image, or choose a file.</p>
-    </section>
 
-    <section class="stage" aria-live="polite">
-      <div class="canvas-wrap">
-        <p class="empty" id="empty">The segment wall will appear here.</p>
-        <canvas id="preview" aria-label="Seven-segment media preview" hidden></canvas>
+      <div class="sidebar">
+        <section class="controls" id="drop-zone" aria-label="Media controls">
+          <label>
+            Media
+            <input id="file" type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/*">
+          </label>
+          <label>
+            Columns <output id="columns-value" for="columns">36</output>
+            <input id="columns" type="range" min="4" max="96" value="36">
+          </label>
+          <label>
+            Rows <output id="rows-value" for="rows">20</output>
+            <input id="rows" type="range" min="3" max="54" value="20">
+          </label>
+          <label>
+            Digit size <output id="size-value" for="size">30 px</output>
+            <input id="size" type="range" min="10" max="72" value="30">
+          </label>
+          <label>
+            Segment thickness <output id="thickness-value" for="thickness">18%</output>
+            <input id="thickness" type="range" min="10" max="30" value="18">
+          </label>
+          <label>
+            Gap <output id="gap-value" for="gap">3 px</output>
+            <input id="gap" type="range" min="0" max="16" value="3">
+          </label>
+          <label>
+            Threshold <output id="threshold-value" for="threshold">128</output>
+            <input id="threshold" type="range" min="0" max="255" value="128">
+          </label>
+          <label>
+            Export FPS <output id="fps-value" for="fps">12</output>
+            <input id="fps" type="range" min="1" max="30" value="12">
+          </label>
+          <label>
+            On color
+            <input id="on-color" type="color" value="#111618">
+          </label>
+          <label>
+            Off color
+            <input id="off-color" type="color" value="#d8dfdc">
+          </label>
+          <label>
+            Background
+            <input id="bg-color" type="color" value="#f7f7f2">
+          </label>
+          <div class="actions">
+            <button id="play" type="button" disabled>Play</button>
+            <button id="swap-sides" type="button">Swap sides</button>
+            <button id="download-png" type="button" disabled>Download PNG</button>
+            <button id="download-json" type="button" disabled>Download JSON</button>
+          </div>
+          <label class="full">
+            Time <output id="time-value" for="seek">0.00 s</output>
+            <input id="seek" type="range" min="0" max="1" step="0.001" value="0" disabled>
+          </label>
+          <p class="full" id="status" role="status">Drop a media file here, paste an image, or choose a file.</p>
+        </section>
+
+        <aside class="details" aria-label="Output details">
+          <h2>Matrix</h2>
+          <dl>
+            <dt>Cells</dt><dd id="cell-count">0</dd>
+            <dt>Segments</dt><dd id="segment-count">0</dd>
+            <dt>Canvas</dt><dd id="canvas-size">0 x 0</dd>
+            <dt>Source</dt><dd id="source-size">None</dd>
+            <dt>Mode</dt><dd id="mode">Waiting</dd>
+          </dl>
+        </aside>
       </div>
-      <aside class="details" aria-label="Output details">
-        <h2>Matrix</h2>
-        <dl>
-          <dt>Cells</dt><dd id="cell-count">0</dd>
-          <dt>Segments</dt><dd id="segment-count">0</dd>
-          <dt>Canvas</dt><dd id="canvas-size">0 x 0</dd>
-          <dt>Source</dt><dd id="source-size">None</dd>
-          <dt>Mode</dt><dd id="mode">Waiting</dd>
-        </dl>
-      </aside>
     </section>
 
     <footer>
@@ -213,12 +259,18 @@
     const CELL_H = 24;
     const SEGMENTS = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
     const els = {
+      workspace: document.querySelector('#workspace'),
       file: document.querySelector('#file'),
       dropZone: document.querySelector('#drop-zone'),
       status: document.querySelector('#status'),
+      original: document.querySelector('#original'),
+      processed: document.querySelector('#processed'),
+      originalEmpty: document.querySelector('#original-empty'),
+      processedEmpty: document.querySelector('#processed-empty'),
       preview: document.querySelector('#preview'),
       empty: document.querySelector('#empty'),
       play: document.querySelector('#play'),
+      swapSides: document.querySelector('#swap-sides'),
       downloadPng: document.querySelector('#download-png'),
       downloadJson: document.querySelector('#download-json'),
       seek: document.querySelector('#seek'),
@@ -252,6 +304,8 @@
 
     const analysis = document.createElement('canvas');
     const analysisContext = analysis.getContext('2d', { willReadFrequently: true });
+    const originalContext = els.original.getContext('2d');
+    const processedContext = els.processed.getContext('2d');
     const previewContext = els.preview.getContext('2d');
     const state = {
       source: null,
@@ -267,6 +321,11 @@
       masks: null,
       exporting: false
     };
+
+    function reveal(canvas, empty) {
+      empty.hidden = true;
+      canvas.hidden = false;
+    }
 
     function value(id) {
       return Number(els[id].value);
@@ -385,13 +444,37 @@
       context.drawImage(drawable, x, y, drawWidth, drawHeight);
     }
 
-    function computeCells(drawable, sourceWidth, sourceHeight) {
+    function renderPipelineViews(pixels, width, height) {
+      els.original.width = width;
+      els.original.height = height;
+      originalContext.drawImage(analysis, 0, 0);
+
+      const processed = processedContext.createImageData(width, height);
+      const threshold = value('threshold');
+      for (let index = 0; index < pixels.length; index += 4) {
+        const luminance = pixels[index] * .2126 + pixels[index + 1] * .7152 + pixels[index + 2] * .0722;
+        const color = luminance < threshold ? 0 : 255;
+        processed.data[index] = color;
+        processed.data[index + 1] = color;
+        processed.data[index + 2] = color;
+        processed.data[index + 3] = 255;
+      }
+
+      els.processed.width = width;
+      els.processed.height = height;
+      processedContext.putImageData(processed, 0, 0);
+      reveal(els.original, els.originalEmpty);
+      reveal(els.processed, els.processedEmpty);
+    }
+
+    function computeCells(drawable, sourceWidth, sourceHeight, paintViews = false) {
       const columns = value('columns');
       const rows = value('rows');
       analysis.width = columns * CELL_W;
       analysis.height = rows * CELL_H;
       drawContained(analysisContext, drawable, sourceWidth, sourceHeight, analysis.width, analysis.height);
       const pixels = analysisContext.getImageData(0, 0, analysis.width, analysis.height).data;
+      if (paintViews) renderPipelineViews(pixels, analysis.width, analysis.height);
       const cells = new Uint8Array(columns * rows);
 
       for (let row = 0; row < rows; row++) {
@@ -469,8 +552,7 @@
         }
       }
 
-      els.empty.hidden = true;
-      els.preview.hidden = false;
+      reveal(els.preview, els.empty);
       els.downloadPng.disabled = false;
       els.downloadJson.disabled = false;
       els.cellCount.textContent = String(columns * rows);
@@ -497,7 +579,7 @@
     function renderNow() {
       const source = currentDrawable();
       if (!source || !source.width || !source.height) return;
-      state.currentCells = computeCells(source.drawable, source.width, source.height);
+      state.currentCells = computeCells(source.drawable, source.width, source.height, true);
       renderCells(state.currentCells);
       updateTime(source.time || 0);
     }
@@ -559,6 +641,10 @@
       state.type = '';
       state.currentCells = [];
       state.gifIndex = 0;
+      for (const [canvas, empty] of [[els.original, els.originalEmpty], [els.processed, els.processedEmpty], [els.preview, els.empty]]) {
+        canvas.hidden = true;
+        empty.hidden = false;
+      }
     }
 
     function readyCommon(file, type, width, height) {
@@ -768,6 +854,10 @@
       }
     }
 
+    function toggleSides() {
+      els.workspace.classList.toggle('is-swapped');
+    }
+
     console.assert(segmentRects(14, 24, .18).length === 7, 'Seven segment rectangles should be generated');
     buildMasks();
     console.assert(state.masks.onCounts[0] === 0, 'Blank mask should have no active pixels');
@@ -779,6 +869,7 @@
     }
     els.file.addEventListener('change', () => loadFile(els.file.files[0]));
     els.play.addEventListener('click', () => setPlaying(!state.playing));
+    els.swapSides.addEventListener('click', toggleSides);
     els.downloadPng.addEventListener('click', downloadPng);
     els.downloadJson.addEventListener('click', exportJson);
     els.seek.addEventListener('input', handleSeek);
@@ -790,15 +881,15 @@
       }
     });
     for (const type of ['dragenter', 'dragover']) {
-      els.dropZone.addEventListener(type, event => {
+      els.workspace.addEventListener(type, event => {
         event.preventDefault();
-        els.dropZone.classList.add('is-dragging');
+        els.workspace.classList.add('is-dragging');
       });
     }
-    els.dropZone.addEventListener('dragleave', () => els.dropZone.classList.remove('is-dragging'));
-    els.dropZone.addEventListener('drop', event => {
+    els.workspace.addEventListener('dragleave', () => els.workspace.classList.remove('is-dragging'));
+    els.workspace.addEventListener('drop', event => {
       event.preventDefault();
-      els.dropZone.classList.remove('is-dragging');
+      els.workspace.classList.remove('is-dragging');
       loadFile(Array.from(event.dataTransfer.files).find(file => file.type.startsWith('image/') || file.type.startsWith('video/') || /\.gif$/i.test(file.name)));
     });
   </script>
