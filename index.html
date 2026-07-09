@@ -189,37 +189,6 @@
             <input id="file" type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/*">
           </label>
           <label>
-            Columns <output id="columns-value" for="columns">36</output>
-            <input id="columns" type="range" min="4" max="96" value="36">
-          </label>
-          <label>
-            Rows <output id="rows-value" for="rows">20</output>
-            <input id="rows" type="range" min="3" max="54" value="20">
-          </label>
-          <label>
-            Digit size <output id="size-value" for="size">30 px</output>
-            <input id="size" type="range" min="10" max="72" value="30">
-          </label>
-          <label>
-            Segment thickness <output id="thickness-value" for="thickness">18%</output>
-            <input id="thickness" type="range" min="10" max="30" value="18">
-          </label>
-          <label>
-            Gap <output id="gap-value" for="gap">3 px</output>
-            <input id="gap" type="range" min="0" max="16" value="3">
-          </label>
-          <label>
-            Processing mode
-            <select id="process-mode">
-              <option value="otsu" selected>Otsu auto</option>
-              <option value="manual">Manual threshold</option>
-              <option value="adaptive">Adaptive local</option>
-              <option value="ordered">Ordered dither</option>
-              <option value="floyd">Floyd-Steinberg dither</option>
-              <option value="edge">Edge boost</option>
-            </select>
-          </label>
-          <label>
             Threshold <output id="threshold-value" for="threshold">128</output>
             <input id="threshold" type="range" min="0" max="255" value="128">
           </label>
@@ -242,6 +211,37 @@
           <label id="dither-row" hidden>
             Dither strength <output id="dither-value" for="dither">100%</output>
             <input id="dither" type="range" min="0" max="100" value="100">
+          </label>
+          <label>
+            Processing mode
+            <select id="process-mode">
+              <option value="otsu" selected>Otsu auto</option>
+              <option value="manual">Manual threshold</option>
+              <option value="adaptive">Adaptive local</option>
+              <option value="ordered">Ordered dither</option>
+              <option value="floyd">Floyd-Steinberg dither</option>
+              <option value="edge">Edge boost</option>
+            </select>
+          </label>
+          <label>
+            Columns <output id="columns-value" for="columns">36</output>
+            <input id="columns" type="range" min="4" max="96" value="36">
+          </label>
+          <label>
+            Rows <output id="rows-value" for="rows">20</output>
+            <input id="rows" type="range" min="3" max="54" value="20">
+          </label>
+          <label>
+            Digit size <output id="size-value" for="size">30 px</output>
+            <input id="size" type="range" min="10" max="72" value="30">
+          </label>
+          <label>
+            Segment thickness <output id="thickness-value" for="thickness">18%</output>
+            <input id="thickness" type="range" min="10" max="30" value="18">
+          </label>
+          <label>
+            Gap <output id="gap-value" for="gap">3 px</output>
+            <input id="gap" type="range" min="0" max="16" value="3">
           </label>
           <label>
             Export FPS <output id="fps-value" for="fps">12</output>
